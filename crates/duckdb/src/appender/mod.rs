@@ -1,10 +1,10 @@
-use super::{AppenderParams, Connection, Result, ValueRef, ffi};
+use super::{ffi, AppenderParams, Connection, Result, ValueRef};
 use std::{ffi::c_void, fmt, os::raw::c_char};
 
 use crate::{
-    Error,
     error::result_from_duckdb_appender,
     types::{ToSql, ToSqlOutput},
+    Error,
 };
 
 /// Appender for fast import data
@@ -152,6 +152,13 @@ impl Appender<'_> {
             ValueRef::USmallInt(i) => unsafe { ffi::duckdb_append_uint16(ptr, i) },
             ValueRef::UInt(i) => unsafe { ffi::duckdb_append_uint32(ptr, i) },
             ValueRef::UBigInt(i) => unsafe { ffi::duckdb_append_uint64(ptr, i) },
+            ValueRef::UHugeInt(i) => unsafe {
+                let uhi = ffi::duckdb_uhugeint {
+                    lower: i as u64,
+                    upper: (i >> 64) as u64,
+                };
+                ffi::duckdb_append_uhugeint(ptr, uhi)
+            },
             ValueRef::HugeInt(i) => unsafe {
                 let hi = ffi::duckdb_hugeint {
                     lower: i as u64,
@@ -261,7 +268,7 @@ impl fmt::Debug for Appender<'_> {
 mod test {
     use rust_decimal::Decimal;
 
-    use crate::{Connection, Error, Result, params};
+    use crate::{params, Connection, Error, Result};
 
     #[test]
     fn test_append_one_row() -> Result<()> {

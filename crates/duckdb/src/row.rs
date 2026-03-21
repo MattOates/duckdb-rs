@@ -3,6 +3,7 @@ use std::{convert, sync::Arc};
 use super::{Error, Result, Statement};
 use crate::types::{self, EnumType, FromSql, FromSqlError, ListType, ValueRef};
 
+use arrow::array::Decimal256Array;
 use arrow::{
     array::{
         self, Array, ArrayRef, DictionaryArray, FixedSizeBinaryArray, FixedSizeListArray, ListArray, MapArray,
@@ -456,6 +457,17 @@ impl<'stmt> Row<'stmt> {
                 }
                 ValueRef::Decimal(Decimal::from_i128_with_scale(array.value(row), array.scale() as u32))
             }
+            DataType::Decimal256(..) => {
+                let array = column.as_any().downcast_ref::<Decimal256Array>().unwrap();
+                // uhugeint: d:38,0 as Decimal256
+                if array.scale() == 0 {
+                    let (low, _high) = array.value(row).to_parts();
+                    return ValueRef::UHugeInt(low);
+                }
+                // For non-zero scale Decimal256, fall back to f64
+                let (low, _high) = array.value(row).to_parts();
+                ValueRef::Double(low as f64)
+            }
             DataType::Timestamp(unit, _) if *unit == TimeUnit::Second => {
                 let array = column.as_any().downcast_ref::<array::TimestampSecondArray>().unwrap();
                 ValueRef::Timestamp(types::TimeUnit::Second, array.value(row))
@@ -784,7 +796,7 @@ mod tests {
     #[test]
     #[cfg(feature = "vtab-arrow")]
     fn test_fixed_size_binary_via_arrow() -> Result<()> {
-        use crate::vtab::arrow::{ArrowVTab, arrow_recordbatch_to_query_params};
+        use crate::vtab::arrow::{arrow_recordbatch_to_query_params, ArrowVTab};
         use arrow::array::{Array, ArrayRef, BinaryArray, FixedSizeBinaryArray};
         use arrow::datatypes::{DataType, Field, Schema};
         use arrow::record_batch::RecordBatch;
@@ -828,7 +840,7 @@ mod tests {
     #[test]
     #[cfg(feature = "vtab-arrow")]
     fn test_fixed_size_binary_with_nulls_via_arrow() -> Result<()> {
-        use crate::vtab::arrow::{ArrowVTab, arrow_recordbatch_to_query_params};
+        use crate::vtab::arrow::{arrow_recordbatch_to_query_params, ArrowVTab};
         use arrow::array::{Array, ArrayRef, BinaryArray, FixedSizeBinaryArray};
         use arrow::datatypes::{DataType, Field, Schema};
         use arrow::record_batch::RecordBatch;
@@ -873,7 +885,7 @@ mod tests {
     #[test]
     #[cfg(feature = "vtab-arrow")]
     fn test_fixed_size_binary_different_sizes_via_arrow() -> Result<()> {
-        use crate::vtab::arrow::{ArrowVTab, arrow_recordbatch_to_query_params};
+        use crate::vtab::arrow::{arrow_recordbatch_to_query_params, ArrowVTab};
         use arrow::array::{ArrayRef, FixedSizeBinaryArray};
         use arrow::datatypes::{DataType, Field, Schema};
         use arrow::record_batch::RecordBatch;
@@ -909,7 +921,7 @@ mod tests {
     #[cfg(feature = "vtab-arrow")]
     fn test_fixed_size_binary_value_ref_via_arrow() -> Result<()> {
         use crate::types::ValueRef;
-        use crate::vtab::arrow::{ArrowVTab, arrow_recordbatch_to_query_params};
+        use crate::vtab::arrow::{arrow_recordbatch_to_query_params, ArrowVTab};
         use arrow::array::{ArrayRef, FixedSizeBinaryArray};
         use arrow::datatypes::{DataType, Field, Schema};
         use arrow::record_batch::RecordBatch;

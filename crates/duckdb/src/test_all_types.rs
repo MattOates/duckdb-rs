@@ -2,8 +2,8 @@ use pretty_assertions::assert_eq;
 use rust_decimal::Decimal;
 
 use crate::{
-    Connection,
     types::{OrderedMap, TimeUnit, Type, Value, ValueRef},
+    Connection,
 };
 
 #[test]
@@ -20,7 +20,7 @@ fn test_large_arrow_types() -> crate::Result<()> {
 }
 
 fn test_with_database(database: &Connection) -> crate::Result<()> {
-    let excluded = ["uhugeint", "time_tz", "time_ns", "dec38_10", "bignum"];
+    let excluded = ["time_tz", "time_ns", "dec38_10", "bignum"];
 
     let mut binding = database.prepare(&format!(
         "SELECT * EXCLUDE ({}) FROM test_all_types()",
@@ -100,8 +100,10 @@ fn test_single(idx: &mut i32, column: String, value: ValueRef<'_>) {
             _ => assert_eq!(value, ValueRef::Null),
         },
         "uhugeint" => match idx {
-            0 => assert_eq!(value, ValueRef::UBigInt(0)),
-            1 => assert_eq!(value, ValueRef::UBigInt(18446744073709551615)),
+            // DuckDB represents UHUGEINT as Decimal128(38,0) in Arrow — same as HUGEINT —
+            // so the ValueRef arrives as HugeInt with the u128 bits reinterpreted as i128.
+            0 => assert_eq!(value, ValueRef::HugeInt(0)),
+            1 => assert_eq!(value, ValueRef::HugeInt(u128::MAX as i128)),
             _ => assert_eq!(value, ValueRef::Null),
         },
         "float" => match idx {

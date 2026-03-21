@@ -1,5 +1,5 @@
 use super::{BindInfo, DataChunkHandle, InitInfo, LogicalTypeHandle, TableFunctionInfo, VTab};
-use std::sync::{Arc, Mutex, atomic::AtomicBool};
+use std::sync::{atomic::AtomicBool, Arc, Mutex};
 
 use crate::{
     core::{ArrayVector, FlatVector, Inserter, ListVector, LogicalTypeId, StructVector, Vector},
@@ -8,12 +8,12 @@ use crate::{
 
 use arrow::{
     array::{
-        Array, ArrayData, AsArray, BinaryArray, BinaryViewArray, BooleanArray, Date32Array, Decimal128Array,
-        FixedSizeBinaryArray, FixedSizeListArray, GenericBinaryBuilder, GenericListArray, GenericStringArray,
-        IntervalMonthDayNanoArray, LargeBinaryArray, LargeStringArray, OffsetSizeTrait, PrimitiveArray, StringArray,
-        StringViewArray, StructArray, TimestampMicrosecondArray, TimestampNanosecondArray, as_boolean_array,
-        as_generic_binary_array, as_large_list_array, as_list_array, as_map_array, as_primitive_array, as_string_array,
-        as_struct_array,
+        as_boolean_array, as_generic_binary_array, as_large_list_array, as_list_array, as_map_array,
+        as_primitive_array, as_string_array, as_struct_array, Array, ArrayData, AsArray, BinaryArray, BinaryViewArray,
+        BooleanArray, Date32Array, Decimal128Array, Decimal256Array, FixedSizeBinaryArray, FixedSizeListArray,
+        GenericBinaryBuilder, GenericListArray, GenericStringArray, IntervalMonthDayNanoArray, LargeBinaryArray,
+        LargeStringArray, OffsetSizeTrait, PrimitiveArray, StringArray, StringViewArray, StructArray,
+        TimestampMicrosecondArray, TimestampNanosecondArray,
     },
     buffer::{BooleanBuffer, NullBuffer},
     compute::cast,
@@ -21,12 +21,12 @@ use arrow::{
 
 use arrow::{
     datatypes::*,
-    ffi::{FFI_ArrowArray, FFI_ArrowSchema, from_ffi},
+    ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema},
     record_batch::RecordBatch,
 };
 
 use libduckdb_sys::{duckdb_date, duckdb_string_t, duckdb_time, duckdb_timestamp, duckdb_vector};
-use num::{ToPrimitive, cast::AsPrimitive};
+use num::{cast::AsPrimitive, ToPrimitive};
 
 /// A pointer to the Arrow record batch for the table function.
 #[repr(C)]
@@ -156,6 +156,7 @@ pub fn to_duckdb_type_id(data_type: &DataType) -> Result<LogicalTypeId, Box<dyn 
         DataType::Union(_, _) => Union,
         // DataType::Dictionary(_, _) => todo!(),
         DataType::Decimal128(_, _) => Decimal,
+        DataType::Decimal256(_, 0) => UHugeint,
         DataType::Decimal256(_, _) => Double,
         DataType::Map(_, _) => Map,
         _ => {
@@ -474,7 +475,21 @@ pub fn flat_vector_to_arrow_array(
         LogicalTypeId::Union => todo!(),
         LogicalTypeId::Bit => todo!(),
         LogicalTypeId::TimeTZ => todo!(),
-        LogicalTypeId::UHugeint => todo!(),
+        LogicalTypeId::UHugeint => {
+            let data = vector.as_slice_with_len::<u128>(len);
+
+            let values: Vec<i256> = data.iter().map(|&v| i256::from_parts(v, 0)).collect();
+
+            Ok(Arc::new(
+                Decimal256Array::from_iter_values_with_nulls(
+                    values.into_iter(),
+                    Some(NullBuffer::new(BooleanBuffer::collect_bool(data.len(), |row| {
+                        !vector.row_is_null(row as u64)
+                    }))),
+                )
+                .with_data_type(DataType::Decimal256(38, 0)),
+            ))
+        }
         LogicalTypeId::Any => todo!(),
         LogicalTypeId::Bignum => todo!(),
         LogicalTypeId::SqlNull => todo!(),
@@ -762,6 +777,17 @@ fn primitive_array_to_vector(array: &dyn Array, out: &mut dyn Vector) -> Result<
                 out.as_mut_any().downcast_mut().unwrap(),
                 *width,
             );
+        }
+        DataType::Decimal256(_, 0) => {
+            // UHUGEINT: Decimal256 with scale 0 maps to u128
+            let array = array.as_any().downcast_ref::<Decimal256Array>().unwrap();
+            let out_vector: &mut FlatVector = out.as_mut_any().downcast_mut().unwrap();
+            let out_data: &mut [u128] = out_vector.as_mut_slice();
+            for (i, value) in array.values().iter().enumerate() {
+                let (low, _high) = value.to_parts();
+                out_data[i] = low;
+            }
+            set_nulls_in_flat_vector(array, out_vector);
         }
         DataType::Interval(_) | DataType::Duration(_) => {
             let array = IntervalMonthDayNanoArray::from(
@@ -1155,7 +1181,7 @@ fn set_nulls_in_list_vector(array: &dyn Array, out_vector: &mut ListVector) {
 
 #[cfg(test)]
 mod test {
-    use super::{ArrowVTab, arrow_recordbatch_to_query_params};
+    use super::{arrow_recordbatch_to_query_params, ArrowVTab};
     use crate::{Connection, Result};
     use arrow::{
         array::{
@@ -1169,8 +1195,8 @@ mod test {
         },
         buffer::{OffsetBuffer, ScalarBuffer},
         datatypes::{
-            ArrowPrimitiveType, ByteArrayType, DataType, DurationSecondType, Field, IntervalDayTimeType,
-            IntervalMonthDayNanoType, IntervalYearMonthType, Schema, i256,
+            i256, ArrowPrimitiveType, ByteArrayType, DataType, DurationSecondType, Field, IntervalDayTimeType,
+            IntervalMonthDayNanoType, IntervalYearMonthType, Schema,
         },
         record_batch::RecordBatch,
     };
@@ -1362,11 +1388,9 @@ mod test {
         let rb = stmt.query_arrow(param)?.next().expect("no record batch");
 
         let output_any_array = rb.column(0);
-        assert!(
-            output_any_array
-                .data_type()
-                .equals_datatype(expected_output_array.data_type())
-        );
+        assert!(output_any_array
+            .data_type()
+            .equals_datatype(expected_output_array.data_type()));
 
         match output_any_array.as_list_opt::<T>() {
             Some(output_array) => {
@@ -1493,11 +1517,9 @@ mod test {
         let rb = stmt.query_arrow(param)?.next().expect("no record batch");
 
         let output_any_array = rb.column(0);
-        assert!(
-            output_any_array
-                .data_type()
-                .equals_datatype(expected_output_array.data_type())
-        );
+        assert!(output_any_array
+            .data_type()
+            .equals_datatype(expected_output_array.data_type()));
 
         match output_any_array.as_fixed_size_list_opt() {
             Some(output_array) => {

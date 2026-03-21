@@ -3,8 +3,8 @@
 use serde_json::Value;
 
 use crate::{
-    Result,
     types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
+    Result,
 };
 
 /// Serialize JSON `Value` to text.
@@ -30,7 +30,7 @@ impl FromSql for Value {
 
 #[cfg(test)]
 mod test {
-    use crate::{Connection, Result, types::ToSql};
+    use crate::{types::ToSql, Connection, Result};
 
     fn checked_memory_handle() -> Result<Connection> {
         let db = Connection::open_in_memory()?;

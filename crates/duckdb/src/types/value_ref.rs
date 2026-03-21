@@ -9,7 +9,7 @@ use arrow::{
         Array, ArrayRef, DictionaryArray, FixedSizeListArray, LargeListArray, ListArray, MapArray, StringArray,
         StructArray, UnionArray,
     },
-    datatypes::{UInt8Type, UInt16Type, UInt32Type},
+    datatypes::{UInt16Type, UInt32Type, UInt8Type},
 };
 
 /// An absolute length of time in seconds, milliseconds, microseconds or nanoseconds.
@@ -66,6 +66,8 @@ pub enum ValueRef<'a> {
     UInt(u32),
     /// The value is a unsigned big integer.
     UBigInt(u64),
+    /// The value is a unsigned huge integer.
+    UHugeInt(u128),
     /// The value is a f32.
     Float(f32),
     /// The value is a f64.
@@ -141,6 +143,7 @@ impl ValueRef<'_> {
             ValueRef::USmallInt(_) => Type::USmallInt,
             ValueRef::UInt(_) => Type::UInt,
             ValueRef::UBigInt(_) => Type::UBigInt,
+            ValueRef::UHugeInt(_) => Type::UHugeInt,
             ValueRef::Float(_) => Type::Float,
             ValueRef::Double(_) => Type::Double,
             ValueRef::Decimal(_) => Type::Decimal,
@@ -224,6 +227,7 @@ impl From<ValueRef<'_>> for Value {
             ValueRef::USmallInt(i) => Self::USmallInt(i),
             ValueRef::UInt(i) => Self::UInt(i),
             ValueRef::UBigInt(i) => Self::UBigInt(i),
+            ValueRef::UHugeInt(i) => Self::UHugeInt(i),
             ValueRef::Float(i) => Self::Float(i),
             ValueRef::Double(i) => Self::Double(i),
             ValueRef::Decimal(i) => Self::Decimal(i),
@@ -358,6 +362,7 @@ impl<'a> From<&'a Value> for ValueRef<'a> {
             Value::USmallInt(i) => ValueRef::USmallInt(i),
             Value::UInt(i) => ValueRef::UInt(i),
             Value::UBigInt(i) => ValueRef::UBigInt(i),
+            Value::UHugeInt(i) => ValueRef::UHugeInt(i),
             Value::Float(i) => ValueRef::Float(i),
             Value::Double(i) => ValueRef::Double(i),
             Value::Decimal(i) => ValueRef::Decimal(i),

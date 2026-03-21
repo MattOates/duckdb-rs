@@ -1,7 +1,7 @@
 //! [`ToSql`] and [`FromSql`] implementation for [`url::Url`].
 use crate::{
-    Result,
     types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef},
+    Result,
 };
 use url::Url;
 
@@ -29,7 +29,7 @@ impl FromSql for Url {
 
 #[cfg(test)]
 mod test {
-    use crate::{Connection, Error, Result, params};
+    use crate::{params, Connection, Error, Result};
     use url::{ParseError, Url};
 
     fn checked_memory_handle() -> Result<Connection> {

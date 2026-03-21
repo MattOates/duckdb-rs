@@ -2,7 +2,7 @@ use rust_decimal::prelude::FromPrimitive as _;
 
 use super::TimeUnit;
 use crate::types::{FromSql, FromSqlError, FromSqlResult, ToSqlOutput, Value, ValueRef};
-use crate::{Result, ToSql, ffi};
+use crate::{ffi, Result, ToSql};
 
 /// Convert a rust_decimal::Decimal to a ffi::duckdb_decimal
 pub(crate) fn to_duckdb_decimal(d: rust_decimal::Decimal) -> ffi::duckdb_decimal {
@@ -25,7 +25,11 @@ pub(crate) fn to_duckdb_decimal(d: rust_decimal::Decimal) -> ffi::duckdb_decimal
 /// Get the length of the decimal significant digits of a rust_decimal::Decimal
 fn decimal_width(d: rust_decimal::Decimal) -> u8 {
     let abs = d.mantissa().unsigned_abs();
-    if abs == 0 { 1 } else { abs.ilog10() as u8 + 1 }
+    if abs == 0 {
+        1
+    } else {
+        abs.ilog10() as u8 + 1
+    }
 }
 
 fn invalid_decimal_float(kind: &str, value: impl std::fmt::Debug) -> FromSqlError {

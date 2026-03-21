@@ -87,6 +87,7 @@ macro_rules! from_sql_integral(
                     ValueRef::USmallInt(i) => <$t as cast::From<u16>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
                     ValueRef::UInt(i) => <$t as cast::From<u32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
                     ValueRef::UBigInt(i) => <$t as cast::From<u64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+                    ValueRef::UHugeInt(i) => <$t as cast::From<u128>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
 
                     ValueRef::Float(i) => <$t as cast::From<f32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
                     ValueRef::Double(i) => <$t as cast::From<f64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
@@ -146,6 +147,7 @@ into_result_integral!(u8);
 into_result_integral!(u16);
 into_result_integral!(u32);
 into_result_integral!(u64);
+into_result_integral!(u128);
 into_result_integral!(usize);
 into_result_integral!(f32);
 into_result_integral!(f64);
@@ -172,6 +174,56 @@ from_sql_integral!(u64);
 from_sql_integral!(usize);
 from_sql_integral!(f32);
 from_sql_integral!(f64);
+
+// u128 needs a manual FromSql impl because DuckDB represents UHUGEINT as
+// Decimal128(38,0) in Arrow format — the same as HUGEINT — so the value arrives
+// as ValueRef::HugeInt(i128). We must reinterpret the i128 bits as u128.
+impl FromSql for u128 {
+    #[inline]
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        match value {
+            ValueRef::TinyInt(i) => <u128 as cast::From<i8>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            ValueRef::SmallInt(i) => {
+                <u128 as cast::From<i16>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128))
+            }
+            ValueRef::Int(i) => <u128 as cast::From<i32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            ValueRef::BigInt(i) => <u128 as cast::From<i64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            // UHUGEINT arrives as HugeInt because DuckDB uses Decimal128(38,0)
+            // for both HUGEINT and UHUGEINT in Arrow. Reinterpret the bits.
+            ValueRef::HugeInt(i) => Ok(i as u128),
+            ValueRef::UTinyInt(i) => <u128 as cast::From<u8>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            ValueRef::USmallInt(i) => {
+                <u128 as cast::From<u16>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128))
+            }
+            ValueRef::UInt(i) => <u128 as cast::From<u32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            ValueRef::UBigInt(i) => <u128 as cast::From<u64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            ValueRef::UHugeInt(i) => Ok(i),
+            ValueRef::Float(i) => <u128 as cast::From<f32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            ValueRef::Double(i) => <u128 as cast::From<f64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            ValueRef::Decimal(d) => {
+                use rust_decimal::RoundingStrategy::MidpointAwayFromZero;
+                let rounded = d.round_dp_with_strategy(0, MidpointAwayFromZero);
+                <u128 as cast::From<i128>>::cast(rounded.mantissa()).into_result(FromSqlError::OutOfRange(d.mantissa()))
+            }
+            ValueRef::Timestamp(_, i) => {
+                <u128 as cast::From<i64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128))
+            }
+            ValueRef::Date32(i) => <u128 as cast::From<i32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
+            ValueRef::Time64(super::TimeUnit::Microsecond, i) => {
+                <u128 as cast::From<i64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128))
+            }
+            ValueRef::Text(_) => {
+                let s = value.as_str()?;
+                s.parse::<u128>().or_else(|_| {
+                    s.parse::<i128>()
+                        .map_err(|_| FromSqlError::InvalidType)
+                        .and_then(|i| Err(FromSqlError::OutOfRange(i)))
+                })
+            }
+            _ => Err(FromSqlError::InvalidType),
+        }
+    }
+}
 
 impl FromSql for bool {
     #[inline]
@@ -340,6 +392,19 @@ mod test {
         db.execute("INSERT INTO huge_int VALUES (?, ?);", [&i128max, &i128min])?;
         let v = db.query_row("SELECT * FROM huge_int", [], |row| <(i128, i128)>::try_from(row))?;
         assert_eq!(v, (i128max, i128min));
+        Ok(())
+    }
+
+    // This test asserts that u128s above the i128 max can be written and retrieved properly.
+    #[test]
+    fn test_uhugeint_max_min() -> Result<()> {
+        let db = Connection::open_in_memory()?;
+        db.execute("CREATE TABLE uhuge_int (u1 uhugeint, u2 uhugeint);", [])?;
+        let u128max: u128 = u128::MAX;
+        let u128min: u128 = u128::MIN;
+        db.execute("INSERT INTO uhuge_int VALUES (?, ?);", [&u128max, &u128min])?;
+        let v = db.query_row("SELECT * FROM uhuge_int", [], |row| <(u128, u128)>::try_from(row))?;
+        assert_eq!(v, (u128max, u128min));
         Ok(())
     }
 

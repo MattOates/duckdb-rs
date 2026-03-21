@@ -30,6 +30,8 @@ pub enum Value {
     UInt(u32),
     /// The value is a unsigned big integer.
     UBigInt(u64),
+    /// The value is a unsigned huge integer.
+    UHugeInt(u128),
     /// The value is a f32.
     Float(f32),
     /// The value is a f64.
@@ -137,6 +139,13 @@ impl From<i64> for Value {
     }
 }
 
+impl From<i128> for Value {
+    #[inline]
+    fn from(i: i128) -> Self {
+        Self::HugeInt(i)
+    }
+}
+
 impl From<u8> for Value {
     #[inline]
     fn from(i: u8) -> Self {
@@ -165,10 +174,10 @@ impl From<u64> for Value {
     }
 }
 
-impl From<i128> for Value {
+impl From<u128> for Value {
     #[inline]
-    fn from(i: i128) -> Self {
-        Self::HugeInt(i)
+    fn from(i: u128) -> Self {
+        Self::UHugeInt(i)
     }
 }
 
@@ -229,6 +238,7 @@ impl Value {
             Self::USmallInt(_) => Type::USmallInt,
             Self::UInt(_) => Type::UInt,
             Self::UBigInt(_) => Type::UBigInt,
+            Self::UHugeInt(_) => Type::UHugeInt,
             Self::Float(_) => Type::Float,
             Self::Double(_) => Type::Double,
             Self::Decimal(_) => Type::Decimal,

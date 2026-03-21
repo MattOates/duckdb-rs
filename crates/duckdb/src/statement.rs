@@ -2,7 +2,7 @@ use std::{convert, ffi::c_void, fmt, mem, os::raw::c_char, ptr, str};
 
 use arrow::{array::StructArray, datatypes::SchemaRef};
 
-use super::{AndThenRows, Connection, Error, MappedRows, Params, RawStatement, Result, Row, Rows, ValueRef, ffi};
+use super::{ffi, AndThenRows, Connection, Error, MappedRows, Params, RawStatement, Result, Row, Rows, ValueRef};
 #[cfg(feature = "polars")]
 use crate::polars_dataframe::Polars;
 use crate::{
@@ -588,6 +588,13 @@ impl Statement<'_> {
             ValueRef::USmallInt(i) => unsafe { ffi::duckdb_bind_uint16(ptr, col as u64, i) },
             ValueRef::UInt(i) => unsafe { ffi::duckdb_bind_uint32(ptr, col as u64, i) },
             ValueRef::UBigInt(i) => unsafe { ffi::duckdb_bind_uint64(ptr, col as u64, i) },
+            ValueRef::UHugeInt(i) => unsafe {
+                let uhi = ffi::duckdb_uhugeint {
+                    lower: i as u64,
+                    upper: (i >> 64) as u64,
+                };
+                ffi::duckdb_bind_uhugeint(ptr, col as u64, uhi)
+            },
             ValueRef::Float(r) => unsafe { ffi::duckdb_bind_float(ptr, col as u64, r) },
             ValueRef::Double(r) => unsafe { ffi::duckdb_bind_double(ptr, col as u64, r) },
             ValueRef::Text(s) => unsafe {
@@ -656,7 +663,7 @@ impl Statement<'_> {
 
 #[cfg(test)]
 mod test {
-    use crate::{Connection, Error, Result, params_from_iter, types::ToSql};
+    use crate::{params_from_iter, types::ToSql, Connection, Error, Result};
     use rust_decimal::Decimal;
 
     #[test]

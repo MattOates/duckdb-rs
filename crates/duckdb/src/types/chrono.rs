@@ -5,8 +5,8 @@ use num_integer::Integer;
 use std::fmt::Write;
 
 use crate::{
-    Result,
     types::{FromSql, FromSqlError, FromSqlResult, TimeUnit, ToSql, ToSqlOutput, ValueRef},
+    Result,
 };
 
 use super::Value;
@@ -210,8 +210,8 @@ impl ToSql for Duration {
 #[cfg(test)]
 mod test {
     use crate::{
-        Connection, Result,
         types::{FromSql, FromSqlError, ToSql, ToSqlOutput, ValueRef},
+        Connection, Result,
     };
     use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime, NaiveTime, TimeDelta, TimeZone, Utc};
 

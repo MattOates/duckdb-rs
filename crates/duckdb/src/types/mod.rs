@@ -71,6 +71,8 @@ pub enum Type {
     UInt,
     /// UBIGINT
     UBigInt,
+    /// UHUGEINT
+    UHugeInt,
     /// FLOAT
     Float,
     /// DOUBLE
@@ -176,6 +178,7 @@ impl fmt::Display for Type {
             Self::USmallInt => f.pad("USmallInt"),
             Self::UInt => f.pad("UInt"),
             Self::UBigInt => f.pad("UBigInt"),
+            Self::UHugeInt => f.pad("UHugeInt"),
             Self::Float => f.pad("Float"),
             Self::Double => f.pad("Double"),
             Self::Decimal => f.pad("Decimal"),

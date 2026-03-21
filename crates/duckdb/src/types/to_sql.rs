@@ -52,6 +52,7 @@ from_value!(u8);
 from_value!(u16);
 from_value!(u32);
 from_value!(u64);
+from_value!(u128);
 from_value!(usize);
 from_value!(f32);
 from_value!(f64);
@@ -142,6 +143,7 @@ to_sql_self!(u32);
 to_sql_self!(f32);
 to_sql_self!(f64);
 to_sql_self!(u64);
+to_sql_self!(u128);
 to_sql_self!(usize);
 
 #[cfg(feature = "uuid")]
@@ -324,7 +326,7 @@ mod test {
     #[cfg(feature = "uuid")]
     #[test]
     fn test_uuid_blob_type() -> crate::Result<()> {
-        use crate::{Connection, params};
+        use crate::{params, Connection};
         use uuid::Uuid;
 
         let db = Connection::open_in_memory()?;
@@ -345,7 +347,7 @@ mod test {
     #[cfg(feature = "uuid")]
     #[test]
     fn test_uuid_type() -> crate::Result<()> {
-        use crate::{Connection, params};
+        use crate::{params, Connection};
         use uuid::Uuid;
 
         let db = Connection::open_in_memory()?;
