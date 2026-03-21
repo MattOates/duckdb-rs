@@ -2,7 +2,10 @@ use std::str;
 
 use arrow::datatypes::DataType;
 
-use crate::{Error, Result, Statement, core::LogicalTypeHandle};
+use crate::{
+    core::{LogicalTypeHandle, LogicalTypeId},
+    Error, Result, Statement,
+};
 
 /// Information about a column of a DuckDB query.
 #[derive(Debug)]
@@ -159,6 +162,15 @@ impl Statement<'_> {
     pub fn column_logical_type(&self, idx: usize) -> LogicalTypeHandle {
         self.stmt.column_logical_type(idx)
     }
+
+    /// Returns the cached logical type ID for a column.
+    ///
+    /// This uses a per-statement cache to avoid repeated FFI calls when reading
+    /// many rows. The cache is lazily built on first access.
+    #[inline]
+    pub fn column_logical_type_id(&self, idx: usize) -> &LogicalTypeId {
+        &self.stmt.column_logical_type_ids()[idx]
+    }
 }
 
 #[cfg(test)]
@@ -167,7 +179,7 @@ mod test {
 
     #[test]
     fn test_column_name_in_error() -> Result<()> {
-        use crate::{Error, types::Type};
+        use crate::{types::Type, Error};
         let db = Connection::open_in_memory()?;
         db.execute_batch(
             "BEGIN;

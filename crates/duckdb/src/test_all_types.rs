@@ -100,10 +100,8 @@ fn test_single(idx: &mut i32, column: String, value: ValueRef<'_>) {
             _ => assert_eq!(value, ValueRef::Null),
         },
         "uhugeint" => match idx {
-            // DuckDB represents UHUGEINT as Decimal128(38,0) in Arrow — same as HUGEINT —
-            // so the ValueRef arrives as HugeInt with the u128 bits reinterpreted as i128.
-            0 => assert_eq!(value, ValueRef::HugeInt(0)),
-            1 => assert_eq!(value, ValueRef::HugeInt(u128::MAX as i128)),
+            0 => assert_eq!(value, ValueRef::UHugeInt(0)),
+            1 => assert_eq!(value, ValueRef::UHugeInt(u128::MAX)),
             _ => assert_eq!(value, ValueRef::Null),
         },
         "float" => match idx {

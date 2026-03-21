@@ -171,59 +171,10 @@ from_sql_integral!(u8);
 from_sql_integral!(u16);
 from_sql_integral!(u32);
 from_sql_integral!(u64);
+from_sql_integral!(u128);
 from_sql_integral!(usize);
 from_sql_integral!(f32);
 from_sql_integral!(f64);
-
-// u128 needs a manual FromSql impl because DuckDB represents UHUGEINT as
-// Decimal128(38,0) in Arrow format — the same as HUGEINT — so the value arrives
-// as ValueRef::HugeInt(i128). We must reinterpret the i128 bits as u128.
-impl FromSql for u128 {
-    #[inline]
-    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
-        match value {
-            ValueRef::TinyInt(i) => <u128 as cast::From<i8>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            ValueRef::SmallInt(i) => {
-                <u128 as cast::From<i16>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128))
-            }
-            ValueRef::Int(i) => <u128 as cast::From<i32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            ValueRef::BigInt(i) => <u128 as cast::From<i64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            // UHUGEINT arrives as HugeInt because DuckDB uses Decimal128(38,0)
-            // for both HUGEINT and UHUGEINT in Arrow. Reinterpret the bits.
-            ValueRef::HugeInt(i) => Ok(i as u128),
-            ValueRef::UTinyInt(i) => <u128 as cast::From<u8>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            ValueRef::USmallInt(i) => {
-                <u128 as cast::From<u16>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128))
-            }
-            ValueRef::UInt(i) => <u128 as cast::From<u32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            ValueRef::UBigInt(i) => <u128 as cast::From<u64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            ValueRef::UHugeInt(i) => Ok(i),
-            ValueRef::Float(i) => <u128 as cast::From<f32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            ValueRef::Double(i) => <u128 as cast::From<f64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            ValueRef::Decimal(d) => {
-                use rust_decimal::RoundingStrategy::MidpointAwayFromZero;
-                let rounded = d.round_dp_with_strategy(0, MidpointAwayFromZero);
-                <u128 as cast::From<i128>>::cast(rounded.mantissa()).into_result(FromSqlError::OutOfRange(d.mantissa()))
-            }
-            ValueRef::Timestamp(_, i) => {
-                <u128 as cast::From<i64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128))
-            }
-            ValueRef::Date32(i) => <u128 as cast::From<i32>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128)),
-            ValueRef::Time64(super::TimeUnit::Microsecond, i) => {
-                <u128 as cast::From<i64>>::cast(i).into_result(FromSqlError::OutOfRange(i as i128))
-            }
-            ValueRef::Text(_) => {
-                let s = value.as_str()?;
-                s.parse::<u128>().or_else(|_| {
-                    s.parse::<i128>()
-                        .map_err(|_| FromSqlError::InvalidType)
-                        .and_then(|i| Err(FromSqlError::OutOfRange(i)))
-                })
-            }
-            _ => Err(FromSqlError::InvalidType),
-        }
-    }
-}
 
 impl FromSql for bool {
     #[inline]
@@ -639,6 +590,42 @@ mod test {
             _ => panic!("Expected IntegralValueOutOfRange error, got: {err}"),
         }
 
+        Ok(())
+    }
+
+    /// Reading i128 from a UHUGEINT column with a value > i128::MAX should
+    /// return an OutOfRange error (not silently reinterpret bits).
+    #[test]
+    fn test_i128_from_uhugeint_out_of_range() -> Result<()> {
+        let db = Connection::open_in_memory()?;
+        db.execute("CREATE TABLE t (v UHUGEINT)", [])?;
+        db.execute("INSERT INTO t VALUES (?)", [&u128::MAX])?;
+
+        let err = db
+            .query_row("SELECT v FROM t", [], |row| row.get::<_, i128>(0))
+            .unwrap_err();
+        match err {
+            Error::IntegralValueOutOfRange(_, _) => {} // Expected
+            _ => panic!("Expected IntegralValueOutOfRange error, got: {err}"),
+        }
+        Ok(())
+    }
+
+    /// Reading u128 from a HUGEINT column with a negative value should
+    /// return an OutOfRange error (not silently reinterpret bits).
+    #[test]
+    fn test_u128_from_hugeint_negative_out_of_range() -> Result<()> {
+        let db = Connection::open_in_memory()?;
+        db.execute("CREATE TABLE t2 (v HUGEINT)", [])?;
+        db.execute("INSERT INTO t2 VALUES (?)", [&(-1i128)])?;
+
+        let err = db
+            .query_row("SELECT v FROM t2", [], |row| row.get::<_, u128>(0))
+            .unwrap_err();
+        match err {
+            Error::IntegralValueOutOfRange(_, _) => {} // Expected
+            _ => panic!("Expected IntegralValueOutOfRange error, got: {err}"),
+        }
         Ok(())
     }
 }

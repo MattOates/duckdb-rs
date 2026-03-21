@@ -3,11 +3,15 @@ use std::{cell::OnceCell, collections::HashMap, ffi::CStr, ops::Deref, ptr, rc::
 use arrow::{
     array::StructArray,
     datatypes::{DataType, Schema, SchemaRef},
-    ffi::{FFI_ArrowArray, FFI_ArrowSchema, from_ffi},
+    ffi::{from_ffi, FFI_ArrowArray, FFI_ArrowSchema},
 };
 
-use super::{Result, ffi};
-use crate::{Error, core::LogicalTypeHandle, error::result_from_duckdb_arrow};
+use super::{ffi, Result};
+use crate::{
+    core::{LogicalTypeHandle, LogicalTypeId},
+    error::result_from_duckdb_arrow,
+    Error,
+};
 #[cfg(feature = "polars")]
 use polars_core::utils::arrow as polars_arrow;
 
@@ -25,6 +29,7 @@ pub struct RawStatement {
     duckdb_result: Option<ffi::duckdb_result>,
     schema: Option<SchemaRef>,
     column_name_cache: OnceCell<HashMap<Box<str>, usize>>,
+    column_logical_type_cache: OnceCell<Vec<LogicalTypeId>>,
     // Tracks whether the duckdb_result is truly streaming or materialized.
     // This is needed because some statements (like CALL) return materialized
     // results even when execute_streaming is called.
@@ -50,6 +55,7 @@ impl RawStatement {
             result: None,
             schema: None,
             column_name_cache: OnceCell::new(),
+            column_logical_type_cache: OnceCell::new(),
             duckdb_result: None,
             is_streaming: false,
             statement_cache_key: None,
@@ -234,6 +240,19 @@ impl RawStatement {
         }
     }
 
+    /// Returns the cached logical type IDs for all columns in the result set.
+    /// The cache is lazily built on first access and reused for subsequent calls.
+    #[inline]
+    pub fn column_logical_type_ids(&self) -> &[LogicalTypeId] {
+        self.column_logical_type_cache
+            .get_or_init(|| self.build_column_logical_type_cache())
+    }
+
+    fn build_column_logical_type_cache(&self) -> Vec<LogicalTypeId> {
+        let count = self.column_count();
+        (0..count).map(|idx| self.column_logical_type(idx).id()).collect()
+    }
+
     #[inline]
     pub fn schema(&self) -> SchemaRef {
         self.schema.clone().unwrap()
@@ -348,6 +367,7 @@ impl RawStatement {
     pub fn reset_result(&mut self) {
         self.schema = None;
         self.column_name_cache = OnceCell::new();
+        self.column_logical_type_cache = OnceCell::new();
         self.is_streaming = false;
         if self.result.is_some() {
             unsafe {

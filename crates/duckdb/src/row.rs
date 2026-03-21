@@ -1,9 +1,9 @@
 use std::{convert, sync::Arc};
 
 use super::{Error, Result, Statement};
+use crate::core::LogicalTypeId;
 use crate::types::{self, EnumType, FromSql, FromSqlError, ListType, ValueRef};
 
-use arrow::array::Decimal256Array;
 use arrow::{
     array::{
         self, Array, ArrayRef, DictionaryArray, FixedSizeBinaryArray, FixedSizeListArray, ListArray, MapArray,
@@ -371,7 +371,18 @@ impl<'stmt> Row<'stmt> {
 
     fn value_ref(&self, row: usize, col: usize) -> ValueRef<'_> {
         let column = self.arr.as_ref().as_ref().unwrap().column(col);
-        Self::value_ref_internal(row, col, column)
+        let value = Self::value_ref_internal(row, col, column);
+
+        // DuckDB represents both HUGEINT and UHUGEINT as Decimal128(38,0) in
+        // Arrow, so value_ref_internal always returns ValueRef::HugeInt for
+        // both. For top-level columns we can disambiguate via the cached
+        // logical type from the prepared statement.
+        if let ValueRef::HugeInt(i) = value {
+            if *self.stmt.column_logical_type_id(col) == LogicalTypeId::UHugeint {
+                return ValueRef::UHugeInt(i as u128);
+            }
+        }
+        value
     }
 
     pub(crate) fn value_ref_internal(row: usize, col: usize, column: &ArrayRef) -> ValueRef<'_> {
@@ -456,17 +467,6 @@ impl<'stmt> Row<'stmt> {
                     return ValueRef::HugeInt(array.value(row));
                 }
                 ValueRef::Decimal(Decimal::from_i128_with_scale(array.value(row), array.scale() as u32))
-            }
-            DataType::Decimal256(..) => {
-                let array = column.as_any().downcast_ref::<Decimal256Array>().unwrap();
-                // uhugeint: d:38,0 as Decimal256
-                if array.scale() == 0 {
-                    let (low, _high) = array.value(row).to_parts();
-                    return ValueRef::UHugeInt(low);
-                }
-                // For non-zero scale Decimal256, fall back to f64
-                let (low, _high) = array.value(row).to_parts();
-                ValueRef::Double(low as f64)
             }
             DataType::Timestamp(unit, _) if *unit == TimeUnit::Second => {
                 let array = column.as_any().downcast_ref::<array::TimestampSecondArray>().unwrap();
